@@ -205,7 +205,7 @@
     }
 
     if (heroVisual && y < vh * 1.2) {
-      heroVisual.style.transform = `translate3d(0, ${y * .12}px, 0)`;
+      heroVisual.style.transform = window.innerWidth > 960 ? `translate3d(0, ${y * .12}px, 0)` : "";
     }
   };
 

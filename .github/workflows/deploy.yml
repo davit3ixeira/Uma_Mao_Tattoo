@@ -1,0 +1,82 @@
+name: Deploy produção
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "index.html"
+      - "assets/**"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://umamaotattoo.doe-natal.com.br
+    env:
+      SITE_DIR: /var/www/umamaotattoo
+      SITE_URL: https://umamaotattoo.doe-natal.com.br
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Monta o pacote do site
+        run: |
+          SHORT="${GITHUB_SHA::7}"
+          mkdir dist
+          cp index.html dist/
+          cp -r assets dist/
+          # força o navegador a baixar css/js novos a cada deploy
+          sed -i "s#assets/css/style.css#assets/css/style.css?v=$SHORT#; s#assets/js/main.js#assets/js/main.js?v=$SHORT#" dist/index.html
+          echo "RELEASE=$(date -u +%Y%m%d%H%M%S)-$SHORT" >> "$GITHUB_ENV"
+
+      - name: Configura SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<EOF
+          Host prod
+            HostName $DEPLOY_HOST
+            User $DEPLOY_USER
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+          EOF
+
+      - name: Envia a nova versão
+        run: |
+          ssh prod "mkdir -p $SITE_DIR/releases/$RELEASE"
+          rsync -rlz --delete --chmod=D755,F644 dist/ "prod:$SITE_DIR/releases/$RELEASE/"
+
+      - name: Coloca no ar
+        run: |
+          ssh prod "set -e
+            cd $SITE_DIR
+            ln -sfn releases/$RELEASE current.tmp
+            mv -Tf current.tmp current
+            # guarda só as 5 versões mais recentes
+            ls -1dt releases/*/ | tail -n +6 | xargs -r rm -rf"
+
+      - name: Confere se a produção respondeu
+        run: |
+          for i in 1 2 3 4 5; do
+            if curl -fsS "$SITE_URL/" | grep -q "data-wizard"; then
+              echo "No ar: $SITE_URL ($RELEASE)"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "A produção não respondeu com o site novo." >&2
+          exit 1

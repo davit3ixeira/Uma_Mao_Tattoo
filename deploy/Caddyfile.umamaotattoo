@@ -1,0 +1,20 @@
+umamaotattoo.doe-natal.com.br {
+	root * /var/www/umamaotattoo/current
+	encode zstd gzip
+	file_server
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# css/js recebem ?v=<commit> no deploy, então podem ficar em cache por bastante tempo
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=604800"
+
+	@html path / /index.html
+	header @html Cache-Control "no-cache"
+}
